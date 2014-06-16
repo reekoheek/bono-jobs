@@ -7,6 +7,7 @@ use \Bono\Controller\RestController;
 
 use \Norm\Schema\String;
 use \Norm\Schema\DateTime;
+use \Norm\Filter\Filter;
 
 class JobController extends RestController
 {
@@ -19,7 +20,11 @@ class JobController extends RestController
     {
         if ($this->request->isPost()) {
             try {
-                Jobs::create($this->request->post());
+                $post = $this->request->post();
+                $post = Filter::fromSchema($this->schema())->run($post);
+
+                Jobs::create($post);
+
                 h('notification.info', 'Job created.');
             } catch (\Exception $e) {
                 h('notification.error', $e);
@@ -38,8 +43,12 @@ class JobController extends RestController
         if ($this->request->isPost() || $this->request->isPut()) {
 
             try {
-                // Jobs::update($this->request->post());
-                h('notification.error', 'Job updated (not implemented yet).');
+                $post = $this->request->post();
+                $post = Filter::fromSchema($this->schema())->run($post);
+
+                Jobs::update($id, $post);
+
+                h('notification.info', 'Job updated.');
             } catch (\Exception $e) {
                 h('notification.error', $e);
             }
@@ -61,10 +70,50 @@ class JobController extends RestController
 
     public function schema()
     {
+        Filter::register('can_access', function ($value, $entry, $args) {
+
+            if (empty($value)) {
+                return $value;
+            }
+
+            if ($args[0] === 'dir') {
+                if (!is_dir($value) && ! @mkdir($value, 0755, true)) {
+                    throw new \Exception('Directory is not exists');
+                }
+
+                if (!is_readable($value)) {
+                    throw new \Exception('Directory is not readable');
+                }
+
+                if (!is_writable($value)) {
+                    throw new \Exception('Directory is not writable');
+                }
+            } else {
+                @mkdir(dirname($value), 0755, true);
+                if (!@touch($value)) {
+                    throw new \Exception('File is not exists');
+                }
+
+                if (!is_readable($value)) {
+                    throw new \Exception('File is not readable');
+                }
+
+                if (!is_writable($value)) {
+                    throw new \Exception('File is not writable');
+                }
+            }
+
+            return $value;
+        });
+
         return array(
-            'expression' => String::create('expression'),
-            'command' => String::create('command'),
-            'next_run' => DateTime::create('next_run')->set('hidden', true),
+            'name' => String::create('name')->filter('required'),
+            'expression' => String::create('expression')->filter('required'),
+            'command' => String::create('command')->filter('required'),
+            'working_dir' => String::create('working_dir')->filter('can_access:dir'),
+            'stdout' => String::create('stdout')->filter('can_access:file'),
+            'stderr' => String::create('stderr')->filter('can_access:file'),
+            'next_run' => DateTime::create('next_run'),
         );
     }
 }
